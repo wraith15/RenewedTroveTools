@@ -1,7 +1,7 @@
 import subprocess
 import sys
 from pathlib import Path
-from shutil import copytree
+from shutil import copytree, rmtree
 from tempfile import TemporaryDirectory
 
 from cx_Freeze import setup, Executable
@@ -10,6 +10,10 @@ from models.metadata import Metadata
 
 metadata = Metadata.load_from_file(Path("data/metadata.json"))
 build_metadata = metadata.copy(update={"dev": False})
+
+for build_path in (Path("build"), Path("dist"), Path("bdist.msi")):
+    if build_path.exists():
+        rmtree(build_path, ignore_errors=True)
 
 python_path = Path(sys.executable).parent.parent
 flet_path = python_path.joinpath("Lib", "site-packages", "flet")
