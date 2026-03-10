@@ -3,10 +3,11 @@ import asyncio
 import aiofiles
 from watchdog.events import FileSystemEventHandler
 import re
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientError
 import psutil
 from utils.trove.registry import get_trove_locations
 from pathlib import Path
+from utils.kiwiapi import API_URL, API_ENABLED
 
 
 class AsyncFileEventHandler(FileSystemEventHandler):
@@ -63,13 +64,19 @@ class AsyncFileEventHandler(FileSystemEventHandler):
                         await function(result.group(1))
 
     async def process_biomes(self, biome):
+        if not API_ENABLED:
+            return
         async with ClientSession() as session:
             data = {
                 "biome": biome,
             }
             headers = {"Authorization": self.page.user_data["internal_token"]}
-            await session.post(
-                "https://kiwiapi.aallyn.xyz/v1/misc/d15_biomes",
-                json=data,
-                headers=headers,
-            )
+            try:
+                await session.post(
+                    f"{API_URL}/misc/d15_biomes",
+                    json=data,
+                    headers=headers,
+                    timeout=5,
+                )
+            except (asyncio.TimeoutError, ClientError, OSError):
+                return

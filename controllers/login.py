@@ -12,12 +12,14 @@ from flet import (
     Container,
 )
 from models.interface import RTTImage
+from utils.kiwiapi import API_URL, API_ENABLED, API_DISABLED_REASON
 from utils.locale import loc
 from flet_core import padding, MainAxisAlignment
 
 
 class LoginController(Controller):
     def setup_controls(self):
+        api_disabled = not API_ENABLED
         self.token_input = TextField(
             data="input",
             label=loc("Insert pass key here"),
@@ -28,6 +30,23 @@ class LoginController(Controller):
             on_change=self.execute_login,
             content_padding=10,
             autofocus=True,
+            disabled=api_disabled,
+            helper_text=API_DISABLED_REASON if api_disabled else None,
+        )
+        discord_login = Chip(
+            leading=Icon("discord"),
+            label=Text("Discord"),
+            on_click=self.execute_login_discord,
+            disabled=api_disabled,
+        )
+        trovesaurus_login = Chip(
+            leading=RTTImage(
+                src="https://trovesaurus.com/images/logos/Sage_64.png?1",
+                width=24,
+            ),
+            label=Text("Trovesaurus"),
+            on_click=self.execute_login_trovesaurus,
+            disabled=api_disabled,
         )
         self.main = Card(
             Container(
@@ -40,22 +59,15 @@ class LoginController(Controller):
                         Text(
                             loc("👇Get pass key from👇"), width=460, text_align="center"
                         ),
+                        Text(
+                            API_DISABLED_REASON,
+                            width=460,
+                            text_align="center",
+                            visible=api_disabled,
+                            color="yellow",
+                        ),
                         Row(
-                            controls=[
-                                Chip(
-                                    leading=Icon("discord"),
-                                    label=Text("Discord"),
-                                    on_click=self.execute_login_discord,
-                                ),
-                                Chip(
-                                    leading=RTTImage(
-                                        src="https://trovesaurus.com/images/logos/Sage_64.png?1",
-                                        width=24,
-                                    ),
-                                    label=Text("Trovesaurus"),
-                                    on_click=self.execute_login_trovesaurus,
-                                ),
-                            ],
+                            controls=[discord_login, trovesaurus_login],
                             width=400,
                             alignment=MainAxisAlignment.SPACE_EVENLY,
                         ),
@@ -77,6 +89,9 @@ class LoginController(Controller):
         pass
 
     async def execute_login(self, e):
+        if not API_ENABLED:
+            self.token_input.helper_text = API_DISABLED_REASON
+            return await self.token_input.update_async()
         if self.token_input.value.strip():
             self.page.user_data = await self.page.RTT.login(
                 self.token_input.value.strip()
@@ -91,11 +106,15 @@ class LoginController(Controller):
             return
 
     async def execute_login_discord(self, e):
-        await self.page.launch_url_async(
-            "https://kiwiapi.aallyn.xyz/v1/user/discord/login"
-        )
+        if not API_ENABLED:
+            await self.page.snack_bar.show(API_DISABLED_REASON, color="yellow")
+            return
+        await self.page.launch_url_async(f"{API_URL}/user/discord/login")
 
     async def execute_login_trovesaurus(self, e):
+        if not API_ENABLED:
+            await self.page.snack_bar.show(API_DISABLED_REASON, color="yellow")
+            return
         await self.page.launch_url_async("https://trovesaurus.com/profile")
 
     async def cancel_login(self, e):

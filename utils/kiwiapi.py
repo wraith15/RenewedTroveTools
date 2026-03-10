@@ -1,12 +1,59 @@
 import asyncio
+import os
 from datetime import datetime, UTC
 from enum import Enum
 from typing import Union, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientError
 from pydantic import BaseModel, Field, validator
 import platform
+
+API_BASE_URL = os.getenv("RTT_API_BASE_URL", "").rstrip("/")
+API_ENABLED = bool(API_BASE_URL)
+API_DISABLED_REASON = os.getenv(
+    "RTT_API_DISABLED_REASON",
+    "Online API features are temporarily disabled while this fork prepares its own backend.",
+)
+API_VERSION = 1
+API_URL = f"{API_BASE_URL}/v{API_VERSION}" if API_ENABLED else ""
+SERVICE_SUBDOMAINS = ("kiwiapi", "api", "app", "trove", "trovetools", "events")
+
+
+def _derive_service_url(base_url: str, subdomain: str, scheme: Optional[str] = None):
+    parsed = urlsplit(base_url)
+    hostname = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    final_scheme = scheme or parsed.scheme
+
+    derived_host = hostname
+    for service_name in SERVICE_SUBDOMAINS:
+        prefix = f"{service_name}."
+        if hostname.startswith(prefix):
+            derived_host = f"{subdomain}.{hostname.removeprefix(prefix)}"
+            break
+
+    return urlunsplit((final_scheme, f"{derived_host}{port}", "", "", "")).rstrip("/")
+
+
+PUBLIC_BASE_URL = os.getenv(
+    "RTT_PUBLIC_BASE_URL", _derive_service_url(API_BASE_URL, "app") if API_ENABLED else ""
+)
+WEB_URL = os.getenv("RTT_WEB_URL", PUBLIC_BASE_URL)
+TROVE_WEB_URL = os.getenv(
+    "RTT_TROVE_WEB_URL",
+    _derive_service_url(PUBLIC_BASE_URL, "trove") if PUBLIC_BASE_URL else "",
+)
+TROVETOOLS_WEB_URL = os.getenv(
+    "RTT_TROVETOOLS_WEB_URL",
+    _derive_service_url(PUBLIC_BASE_URL, "trovetools") if PUBLIC_BASE_URL else "",
+)
+WS_EVENTS_URL = os.getenv(
+    "RTT_EVENTS_URL",
+    _derive_service_url(API_BASE_URL, "events", scheme="wss") + "/"
+    if API_ENABLED
+    else "",
+)
 
 
 class ModFileType(Enum):
@@ -144,11 +191,14 @@ class Endpoints(Enum):
 
 
 class KiwiAPI:
-    base_url: str = "https://kiwiapi.aallyn.xyz"
-    api_version: int = 1
-    api_url: str = f"{base_url}/v{api_version}"
+    base_url: str = API_BASE_URL
+    enabled: bool = API_ENABLED
+    api_version: int = API_VERSION
+    api_url: str = f"{base_url}/v{api_version}" if enabled else ""
 
     async def handshake(self, page):
+        if not self.api_url:
+            return
         async with ClientSession() as session:
             try:
                 await session.get(
@@ -164,7 +214,7 @@ class KiwiAPI:
                     },
                     timeout=5
                 )
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, ClientError, OSError):
                 ...
 
     async def get_mods_page_count(
@@ -174,6 +224,8 @@ class KiwiAPI:
         type: str = None,
         sub_type: str = None,
     ):
+        if not self.api_url:
+            return 0
         if not hasattr(self, "_mod_pages_count"):
             self._mod_pages_count = {}
         params = {"limit": page_size}
@@ -187,12 +239,15 @@ class KiwiAPI:
         cached_pages = self._mod_pages_count.get(encoded_params)
         if cached_pages is None:
             async with ClientSession() as session:
-                async with session.get(
-                    f"{self.api_url}{Endpoints.mods_search.value}?{encoded_params}"
-                ) as response:
-                    count = int(response.headers.get("count"))
-                    cached_pages = count // page_size + 1
-                    self._mod_pages_count[encoded_params] = cached_pages
+                try:
+                    async with session.get(
+                        f"{self.api_url}{Endpoints.mods_search.value}?{encoded_params}"
+                    ) as response:
+                        count = int(response.headers.get("count", 0))
+                        cached_pages = count // page_size + 1 if count else 0
+                        self._mod_pages_count[encoded_params] = cached_pages
+                except (asyncio.TimeoutError, ClientError, OSError):
+                    cached_pages = 0
         return cached_pages
 
     async def get_mods_list_chunk(
@@ -204,6 +259,8 @@ class KiwiAPI:
         sub_type: str = None,
         sort_by: list[tuple[str, str]] = None,
     ):
+        if not self.api_url:
+            return []
         if not hasattr(self, "_mod_pages"):
             self._mod_pages = {}
         offset = page_size * page
@@ -221,51 +278,79 @@ class KiwiAPI:
         cached_mods = self._mod_pages.get(encoded_params)
         if cached_mods is None:
             async with ClientSession() as session:
-                async with session.get(
-                    f"{self.api_url}{Endpoints.mods_search.value}?{encoded_params}"
-                ) as response:
-                    cached_mods = await response.json()
-                    cached_mods = [Mod(**mod) for mod in cached_mods]
-                    self._mod_pages[encoded_params] = cached_mods
+                try:
+                    async with session.get(
+                        f"{self.api_url}{Endpoints.mods_search.value}?{encoded_params}"
+                    ) as response:
+                        cached_mods = await response.json()
+                        cached_mods = [Mod(**mod) for mod in cached_mods]
+                        self._mod_pages[encoded_params] = cached_mods
+                except (asyncio.TimeoutError, ClientError, OSError):
+                    cached_mods = []
         return cached_mods
 
     async def get_mod_types(self):
+        if not self.api_url:
+            self._mod_types = []
+            return self._mod_types
         if not hasattr(self, "_mod_types"):
             async with ClientSession() as session:
-                async with session.get(
-                    f"{self.api_url}{Endpoints.mod_types.value}"
-                ) as response:
-                    self._mod_types = await response.json()
-                    return self._mod_types
+                try:
+                    async with session.get(
+                        f"{self.api_url}{Endpoints.mod_types.value}"
+                    ) as response:
+                        self._mod_types = await response.json()
+                        return self._mod_types
+                except (asyncio.TimeoutError, ClientError, OSError):
+                    self._mod_types = []
         return self._mod_types
 
     async def get_mod_sub_types(self, type: str):
+        if not self.api_url:
+            if not hasattr(self, "_mod_sub_types"):
+                self._mod_sub_types = {}
+            self._mod_sub_types[type] = []
+            return self._mod_sub_types[type]
         if not hasattr(self, "_mod_sub_types") or self._mod_sub_types.get(type) is None:
             async with ClientSession() as session:
-                async with session.get(
-                    f"{self.api_url}{Endpoints.mod_sub_types.value}/{type}"
-                ) as response:
+                try:
+                    async with session.get(
+                        f"{self.api_url}{Endpoints.mod_sub_types.value}/{type}"
+                    ) as response:
+                        if not hasattr(self, "_mod_sub_types"):
+                            self._mod_sub_types = {}
+                        self._mod_sub_types[type] = await response.json()
+                        return self._mod_sub_types[type]
+                except (asyncio.TimeoutError, ClientError, OSError):
                     if not hasattr(self, "_mod_sub_types"):
                         self._mod_sub_types = {}
-                    self._mod_sub_types[type] = await response.json()
-                    return self._mod_sub_types[type]
+                    self._mod_sub_types[type] = []
         return self._mod_sub_types[type]
 
     def get_resized_image_url(self, url: str, size: ImageSize):
+        if not self.api_url:
+            return url
         return (
             self.api_url + Endpoints.image_resize.value + f"?url={url}&size={size.name}"
         )
 
     async def get_mastery(self):
+        if not self.api_url:
+            return None
         async with ClientSession() as session:
-            async with session.get(
-                f"{self.api_url}{Endpoints.mastery.value}"
-            ) as response:
-                if response.status != 200:
-                    return
-                return await response.json()
+            try:
+                async with session.get(
+                    f"{self.api_url}{Endpoints.mastery.value}"
+                ) as response:
+                    if response.status != 200:
+                        return
+                    return await response.json()
+            except (asyncio.TimeoutError, ClientError, OSError):
+                return
 
     async def update_mastery(self, user_token: str, mastery_data: dict):
+        if not self.api_url:
+            return
         async with ClientSession() as session:
             await session.put(
                 f"{self.api_url}{Endpoints.mastery.value}",
@@ -274,6 +359,8 @@ class KiwiAPI:
             )
 
     async def create_profile(self, user_token: str, name: str, description: str):
+        if not self.api_url:
+            return
         async with ClientSession() as session:
             await session.post(
                 f"{self.api_url}{Endpoints.profiles.value}/create",
@@ -282,6 +369,8 @@ class KiwiAPI:
             )
 
     async def update_profile(self, user_token: str, profile_id: str, **kwargs):
+        if not self.api_url:
+            return
         async with ClientSession() as session:
             await session.put(
                 f"{self.api_url}{Endpoints.profiles.value}/update/{profile_id}",
@@ -290,14 +379,21 @@ class KiwiAPI:
             )
 
     async def list_profiles(self, user_token: str):
+        if not self.api_url:
+            return []
         async with ClientSession() as session:
-            async with session.get(
-                f"{self.api_url}{Endpoints.profiles.value}/list_profiles",
-                headers={"Authorization": user_token},
-            ) as response:
-                return await response.json()
+            try:
+                async with session.get(
+                    f"{self.api_url}{Endpoints.profiles.value}/list_profiles",
+                    headers={"Authorization": user_token},
+                ) as response:
+                    return await response.json()
+            except (asyncio.TimeoutError, ClientError, OSError):
+                return []
 
     async def share_profile(self, user_token: str, profile_id: str):
+        if not self.api_url:
+            return
         async with ClientSession() as session:
             await session.post(
                 f"{self.api_url}{Endpoints.profiles.value}/share/{profile_id}",
@@ -305,6 +401,8 @@ class KiwiAPI:
             )
 
     async def private_profile(self, user_token: str, profile_id: str):
+        if not self.api_url:
+            return
         async with ClientSession() as session:
             await session.post(
                 f"{self.api_url}{Endpoints.profiles.value}/unshare/{profile_id}",
@@ -312,6 +410,8 @@ class KiwiAPI:
             )
 
     async def delete_profile(self, user_token: str, profile_id: str):
+        if not self.api_url:
+            return
         async with ClientSession() as session:
             await session.delete(
                 f"{self.api_url}{Endpoints.profiles.value}/delete/{profile_id}",
@@ -321,6 +421,8 @@ class KiwiAPI:
     async def add_mods_to_profile(
         self, user_token: str, profile_id: str, mod_hashes: list[str]
     ):
+        if not self.api_url:
+            return
         async with ClientSession() as session:
             await session.post(
                 f"{self.api_url}{Endpoints.profiles.value}/mod_hashes/{profile_id}",
@@ -331,6 +433,8 @@ class KiwiAPI:
     async def remove_mods_from_profile(
         self, user_token: str, profile_id: str, mod_hashes: list[str]
     ):
+        if not self.api_url:
+            return
         async with ClientSession() as session:
             await session.delete(
                 f"{self.api_url}{Endpoints.profiles.value}/mod_hashes/{profile_id}",
@@ -339,13 +443,22 @@ class KiwiAPI:
             )
 
     async def get_twitch_streams(self):
+        if not self.api_url:
+            return []
         async with ClientSession() as session:
-            async with session.get(
-                f"{self.api_url}{Endpoints.twitch_streams.value}"
-            ) as response:
-                return await response.json()
+            try:
+                async with session.get(
+                    f"{self.api_url}{Endpoints.twitch_streams.value}"
+                ) as response:
+                    if response.status != 200:
+                        return []
+                    return await response.json()
+            except Exception:
+                return []
 
     async def get_star_chart_presets(self):
+        if not self.api_url:
+            return []
         async with ClientSession() as session:
             try:
                 response = await session.get(
@@ -354,7 +467,7 @@ class KiwiAPI:
                 )
                 if response.status != 200:
                     return []
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, ClientError, OSError):
                 return []
             return sorted(await response.json(), key=lambda x: x["preset"]["order"])
 
@@ -379,18 +492,20 @@ class ModProfileList:
         return list(set([m["hash"] for m in self.all_profile_mods]))
 
     async def trovesaurus_data(self):
+        if not API_ENABLED or not self.hashes:
+            return {}
         async with ClientSession() as session:
             try:
                 response = await session.get(
-                    f"https://kiwiapi.aallyn.xyz/v1/mods/hashes",
+                    f"{API_URL}/mods/hashes",
                     json={"hashes": self.hashes},
                     timeout=10
                 )
                 if response.status == 200:
                     return await response.json()
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, ClientError, OSError):
                 ...
-            return []
+            return {}
 
     async def update_trovesaurus_data(self):
         trovesaurus_data = await self.trovesaurus_data()

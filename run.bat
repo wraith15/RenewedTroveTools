@@ -6,6 +6,4 @@ CALL activate.bat
 
 cd ../..
 
-CALL requirements.bat
-
 CALL python app.py

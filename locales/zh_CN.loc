@@ -66,6 +66,7 @@ Activating this star exceeds max of {MaxNode} by {StagedLock}»»超出星图的
 Add Custom directory»»Add Custom directory
 Add custom directory»»Add custom directory
 Add files»»Add files
+Add local TMod»»Add local TMod
 Add to Profile»»Add to Profile
 Add to profile»»Add to profile
 Added {file_name}»»Added {file_name}
@@ -213,6 +214,8 @@ Combat»»❓v.斗争 ,反,反对
 Compare changes with»»❓比较更改
 Config»»Config
 Config file»»Config file
+Configs folder is only available on Windows»»Configs folder is only available on Windows
+Configs folder is unavailable»»Configs folder is unavailable
 Confirm»»Confirm
 Confirm extraction»»Confirm extraction
 Conjurer's Crucible Vial»»巫师的提炼药瓶
@@ -486,6 +489,8 @@ Ice Sage»»寒冰贤者
 If you get knocked back, you cannot critically hit as much.»»❓如果你被击退, 你无法击中那么多.
 Image dimensions don't match game's recommended resolution of 400x230»»Image dimensions don't match game's recommended resolution of 400x230
 Image size exceeds 1MB, it may not be uploadable to Steam»»Image size exceeds 1MB, it may not be uploadable to Steam
+Imported {amount} TMod files»»Imported {amount} TMod files
+Imported {amount} TMod files, skipped {skipped}»»Imported {amount} TMod files, skipped {skipped}
 Improve Stat»»提升属性
 In this constellation of dungeon seeking we greet thee with more health.»»❓在这个寻找地牢的星座中, 我们以更多生命值迎接你.
 Incoming Damage»»❓外来伤害
@@ -705,10 +710,12 @@ No custom directories»»No custom directories
 No events are currently going on.»»❓当前没有正在进行的活动。
 No files added»»No files added
 No files found»»No files found
+No mods directory selected»»No mods directory selected
 No mods in this directory»»No mods in this directory
 No picked directory (Pick your mods folder)»»No picked directory (Pick your mods folder)
 No project folder selected, please select one in the settings tab»»No project folder selected, please select one in the settings tab
 No projects found in selected folder»»No projects found in selected folder
+No valid TMod files were imported»»No valid TMod files were imported
 No versions found»»No versions found
 Normal»»普通
 Not going to push around the brawler.»»❓不会在争吵者周围推来推去.
@@ -720,6 +727,8 @@ One day it will be super important to have a lot of this. Wink Wink»»❓有一
 One or more mods conflict with this mod»»One or more mods conflict with this mod
 Oops, did I leave a flask over on this side of the cosmos.»»❓哎呀, 我在宇宙的这一边留下了一个烧瓶.
 Oops, didn't I mean to make this a health star?»»❓哎呀, 我不是想让这成为健康之星吗?
+Open configs folder»»Open configs folder
+Open mods folder»»Open mods folder
 Open version folder»»Open version folder
 Orange»»❓橙
 Orchian»»兰花
@@ -826,6 +835,7 @@ Select a project folder»»Select a project folder
 Select all»»❓全选
 Select config file»»Select config file
 Select files to add to mod»»Select files to add to mod
+Select local TMod files»»Select local TMod files
 Select preview image»»Select preview image
 Selling»»出售
 Send»»Send

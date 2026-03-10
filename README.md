@@ -1,18 +1,21 @@
 # Renewed Trove Tools
 [![](https://dcbadge.limes.pink/api/server/WTq6YxYzut)](https://discord.gg/WTq6YxYzut)
 <br>
-[![GitHub Release](https://img.shields.io/github/release/AallynReed/RenewedTroveTools.svg?style=flat)]()
-[![Github All Releases](https://img.shields.io/github/downloads/AallynReed/RenewedTroveTools/total.svg?style=flat)]()
-[![NPM License](https://img.shields.io/npm/l/all-contributors.svg?style=flat)](https://github.com/AallynReed/RenewedTroveTools/blob/master/LICENSE)
+[![GitHub Release](https://img.shields.io/github/release/wraith15/RenewedTroveTools.svg?style=flat)]()
+[![Github All Releases](https://img.shields.io/github/downloads/wraith15/RenewedTroveTools/total.svg?style=flat)]()
+[![NPM License](https://img.shields.io/npm/l/all-contributors.svg?style=flat)](https://github.com/wraith15/RenewedTroveTools/blob/master/LICENSE)
 <br>
-[![GitHub last commit](https://img.shields.io/github/last-commit/AallynReed/RenewedTroveTools.svg?style=flat)]()
-[![GitHub commit activity the past week, 4 weeks](https://img.shields.io/github/commit-activity/y/AallynReed/RenewedTroveTools.svg?style=flat)]()
+[![GitHub last commit](https://img.shields.io/github/last-commit/wraith15/RenewedTroveTools.svg?style=flat)]()
+[![GitHub commit activity the past week, 4 weeks](https://img.shields.io/github/commit-activity/y/wraith15/RenewedTroveTools.svg?style=flat)]()
 <br>
-[![GitHub stars](https://img.shields.io/github/stars/AallynReed/RenewedTroveTools.svg?style=social&label=Stars&style=plastic)]()
-[![GitHub watchers](https://img.shields.io/github/watchers/AallynReed/RenewedTroveTools.svg?style=social&label=Watch&style=plastic)]()
-[![GitHub forks](https://img.shields.io/github/forks/AallynReed/RenewedTroveTools.svg?style=social&label=Fork&style=plastic)]()
+[![GitHub stars](https://img.shields.io/github/stars/wraith15/RenewedTroveTools.svg?style=social&label=Stars&style=plastic)]()
+[![GitHub watchers](https://img.shields.io/github/watchers/wraith15/RenewedTroveTools.svg?style=social&label=Watch&style=plastic)]()
+[![GitHub forks](https://img.shields.io/github/forks/wraith15/RenewedTroveTools.svg?style=social&label=Fork&style=plastic)]()
 ## Introduction
 This project aims at remaking the tools present in Trove Tools by Dazo using modern interface and adding new features and tools for public use.
+
+Original project and core application work by Aallyn.
+This repository is a maintained fork under wraith15.
 
 ## Features:
 - Mod Manager
@@ -48,9 +51,12 @@ To run the app, use : `venv/bin/python app.py`
 <br>
 Note: This still requires you to manually set up your mods folder
 
-#### Need help? Join my [Discord](https://kiwiapi.aallyn.xyz/v1/misc/support)
+#### Need help?
+Use the support link exposed by your configured API host, if available.
 
 ### Thanks
+Original project: Aallyn
+
 PotatoPVP - Linux Support
 <br>
 AnglesD - Chinese translations

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from utils.functions import random_id
+from utils.kiwiapi import API_URL, API_ENABLED
 
 
 class StarBuild(BaseModel):
@@ -88,18 +89,22 @@ class StarChart(BaseModel):
                 yield child
 
     async def get_build(self):
+        if not API_ENABLED:
+            return None
         paths = [s.path for s in self.activated_stars]
         string_paths = "$".join(paths)
         raw_build = requests.get(
-            "https://kiwiapi.aallyn.xyz/v1/star_chart/build_paths?paths=" + string_paths
+            f"{API_URL}/star_chart/build_paths?paths=" + string_paths
         )
         build = StarBuild(**json.loads(raw_build.json()))
         return build.build
 
     async def from_string(self, build_id):
+        if not API_ENABLED:
+            return False
         build_id = build_id.strip().split("-")[-1].strip()
         raw_build = requests.get(
-            "https://kiwiapi.aallyn.xyz/v1/star_chart/build/" + build_id
+            f"{API_URL}/star_chart/build/" + build_id
         )
         if raw_build.status_code == 404:
             return False

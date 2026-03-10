@@ -3,7 +3,7 @@ name: Bug report
 about: Create a report to help improve the app
 title: "[BUG] "
 labels: ''
-assignees: AallynDev
+assignees: wraith15
 
 ---
 

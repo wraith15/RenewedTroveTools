@@ -3,6 +3,7 @@ from hashlib import md5
 from aiohttp import ClientSession
 
 from models.trovesaurus.mods import Mod, ModFile
+from utils.kiwiapi import API_URL, API_ENABLED
 
 
 async def get_mod_from_hash(data):
@@ -20,13 +21,15 @@ async def get_mod_from_hash(data):
 
 
 async def get_mods_list(*fields, limit=0, offset=0) -> list[Mod]:
+    if not API_ENABLED:
+        return []
     url_query = ""
     url_query += "#".join(f"{field[0]}${field[1].value}" for field in fields)
     url_query += f"&limit={limit}" if limit else ""
     url_query += f"&offset={offset}" if offset else ""
     async with ClientSession() as session:
         async with session.get(
-            f"https://kiwiapi.aallyn.xyz/v1/mods/list?{url_query}"
+            f"{API_URL}/mods/list?{url_query}"
         ) as response:
             data = await response.json()
             return [Mod.parse_obj(mod) for mod in data]

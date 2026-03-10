@@ -1,12 +1,13 @@
 import asyncio
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from utils.logger import log
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientError, ClientTimeout
 from flet import (
     AppBar,
     IconButton,
@@ -46,26 +47,112 @@ from flet_core.icons import (
 from models.preferences import AccentColor
 from models.interface.image import RTTImage
 from utils.tasks import loop
+from utils.kiwiapi import API_URL, API_ENABLED, API_DISABLED_REASON
 from utils.locale import ENGINE, loc, Locale
 from models.constants import files_cache
 
 
-async def check_update(current_version, debug=False, force=False):
-    async with ClientSession() as session:
-        async with session.get(
-            "https://kiwiapi.aallyn.xyz/v1/misc/latest_release"
-        ) as response:
-            version = await response.json()
-            if current_version != version.get("name") or force:
-                if os.name == "nt":
-                    for asset in version.get("assets"):
-                        if "debug" not in asset.get("name") and not debug:
-                            return asset.get("browser_download_url"), os.name == "nt"
-                        elif "debug" in asset.get("name") and debug:
-                            return asset.get("browser_download_url"), os.name == "nt"
-                else:
-                    return version.get("html_url"), os.name == "nt"
-    return None, os.name == "nt"
+def _github_repo(metadata):
+    return metadata.resolved_github_repo
+
+
+def _github_repo_url(metadata):
+    return f"https://github.com/{_github_repo(metadata)}"
+
+
+def _normalize_version(value):
+    return (value or "").strip().removeprefix("v")
+
+
+def _version_key(value):
+    normalized = _normalize_version(value)
+    return tuple(
+        int(part)
+        for part in re.split(r"[^0-9]+", normalized)
+        if part
+    )
+
+
+def _is_newer_version(candidate, current):
+    candidate_key = _version_key(candidate)
+    current_key = _version_key(current)
+    if not candidate_key:
+        return False
+    if not current_key:
+        return True
+    max_length = max(len(candidate_key), len(current_key))
+    candidate_key += (0,) * (max_length - len(candidate_key))
+    current_key += (0,) * (max_length - len(current_key))
+    return candidate_key > current_key
+
+
+def _pick_release_asset(release, debug=False):
+    msi_assets = []
+    for asset in release.get("assets", []):
+        name = (asset.get("name") or "").lower()
+        if not name.endswith(".msi"):
+            continue
+        is_debug_asset = "debug" in name
+        if is_debug_asset == debug:
+            msi_assets.append(asset)
+    return msi_assets[0] if msi_assets else None
+
+
+async def _get_latest_release(session, metadata, debug=False):
+    repo = _github_repo(metadata)
+    try:
+        async with session.get(f"https://api.github.com/repos/{repo}/releases/latest") as response:
+            if response.status == 200:
+                return await response.json()
+        async with session.get(f"https://api.github.com/repos/{repo}/releases?per_page=10") as response:
+            if response.status != 200:
+                return None
+            releases = await response.json()
+    except (asyncio.TimeoutError, ClientError, OSError) as exc:
+        log("Network").warning(f"Failed to check for updates: {exc}")
+        return None
+
+    fallback_release = None
+    for release in releases:
+        if release.get("draft"):
+            continue
+        if fallback_release is None:
+            fallback_release = release
+        if _pick_release_asset(release, debug) is not None:
+            return release
+    return fallback_release
+
+
+async def check_update(metadata, debug=None, force=False):
+    target_debug = metadata.dev if debug is None else debug
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": f"{metadata.tech_name}/{metadata.version}",
+    }
+    async with ClientSession(timeout=ClientTimeout(total=15), headers=headers) as session:
+        release = await _get_latest_release(session, metadata, target_debug)
+        if release is None:
+            return None
+
+    release_version = _normalize_version(release.get("tag_name") or release.get("name"))
+    current_version = _normalize_version(metadata.version)
+    release_asset = _pick_release_asset(release, target_debug)
+    has_update = (
+        force
+        or target_debug != metadata.dev
+        or _is_newer_version(release_version, current_version)
+    )
+
+    if not has_update:
+        return None
+
+    return {
+        "version": release_version,
+        "page_url": release.get("html_url") or f"{_github_repo_url(metadata)}/releases/latest",
+        "download_url": release_asset.get("browser_download_url") if release_asset else None,
+        "is_windows_installer": os.name == "nt" and release_asset is not None,
+        "debug": target_debug,
+    }
 
 
 class CustomAppBar(AppBar):
@@ -97,7 +184,7 @@ class CustomAppBar(AppBar):
                     [
                         IconButton(
                             icon=DESKTOP_WINDOWS,
-                            url="https://kiwiapi.aallyn.xyz/v1/misc/latest_release/download/redirect",
+                            url=f"{_github_repo_url(self.page.metadata)}/releases/latest",
                             tooltip=loc("Get Windows Application"),
                         )
                     ]
@@ -356,52 +443,43 @@ class CustomAppBar(AppBar):
         actions.extend(kwargs.get("actions", []))
         return actions
 
-    async def change_theme(self, _):
-        self.page.theme_mode = "LIGHT" if not self.page.dark_theme else "DARK"
-        await self.page.client_storage.set_async("theme", self.page.theme_mode)
-        for action in self.actions:
-            if action.data == "theme_switcher":
-                action.icon = (
-                    DARK_MODE if self.page.theme_mode == "LIGHT" else LIGHT_MODE
-                )
-            if action.data == "other-buttons":
-                for item in action.items:
-                    if item.data in ["discord", "github"] and item.content is not None:
-                        item.content.controls[0].src = (
-                            f"assets/icons/brands/{item.data}-mark-black.png"
-                            if self.page.theme_mode == "LIGHT"
-                            else f"assets/icons/brands/{item.data}-mark-white.png"
-                        )
-        await self.page.update_async()
-
     async def display_changelog(self, event):
         content = Column(expand=True, scroll=True)
-        async with ClientSession() as session:
-            async with session.get(
-                "https://kiwiapi.aallyn.xyz/v1/misc/change_log"
-            ) as response:
-                data = await response.json()
-                for version, version_data in sorted(
-                    data.items(),
-                    key=lambda x: -datetime.fromisoformat(x[1]["time"]).timestamp(),
-                ):
-                    content.controls.append(
-                        Column(
-                            controls=[
-                                Text(loc("Version {}").format(version), size=20),
-                                *(
-                                    [
-                                        Text(
-                                            " " * 5
-                                            + f"{change['author']} - {change['message']}",
-                                            size=15,
-                                        )
-                                        for change in version_data["commits"]
-                                    ]
-                                ),
-                            ]
-                        )
-                    )
+        if not API_ENABLED:
+            content.controls.append(Text(loc("Change log is unavailable in local mode.")))
+        else:
+            try:
+                async with ClientSession() as session:
+                    async with session.get(
+                        f"{API_URL}/misc/change_log"
+                    ) as response:
+                        if response.status != 200:
+                            content.controls.append(Text(loc("Change log is currently unavailable.")))
+                        else:
+                            data = await response.json()
+                            for version, version_data in sorted(
+                                data.items(),
+                                key=lambda x: -datetime.fromisoformat(x[1]["time"]).timestamp(),
+                            ):
+                                content.controls.append(
+                                    Column(
+                                        controls=[
+                                            Text(loc("Version {}").format(version), size=20),
+                                            *(
+                                                [
+                                                    Text(
+                                                        " " * 5
+                                                        + f"{change['author']} - {change['message']}",
+                                                        size=15,
+                                                    )
+                                                    for change in version_data["commits"]
+                                                ]
+                                            ),
+                                        ]
+                                    )
+                                )
+            except (asyncio.TimeoutError, ClientError, OSError):
+                content.controls.append(Text(loc("Change log is unavailable in local mode.")))
         await self.page.dialog.set_data(
             modal=True,
             title=Text(loc("Change Log")),
@@ -412,8 +490,8 @@ class CustomAppBar(AppBar):
 
     async def check_for_update(self):
         await asyncio.sleep(1)
-        update = await check_update(self.page.metadata.version, self.page.metadata.dev)
-        if update[0] is not None:
+        update = await check_update(self.page.metadata)
+        if update is not None:
             if not self.update_notified:
                 await self.page.dialog.set_data(
                     modal=True,
@@ -464,9 +542,16 @@ class CustomAppBar(AppBar):
         await self.page.update_async()
 
     async def send_feedback(self, event):
-        async with ClientSession() as session:
-            data = {"message": self.feedback_text.value}
-            await session.post("https://kiwiapi.aallyn.xyz/v1/misc/feedback", json=data)
+        if not API_ENABLED:
+            await self.page.snack_bar.show(API_DISABLED_REASON, "yellow")
+            return
+        try:
+            async with ClientSession() as session:
+                data = {"message": self.feedback_text.value}
+                await session.post(f"{API_URL}/misc/feedback", json=data)
+        except (asyncio.TimeoutError, ClientError, OSError):
+            await self.page.snack_bar.show(loc("Feedback is unavailable in local mode."), "yellow")
+            return
         await self.page.dialog.hide()
         await self.page.snack_bar.show(loc("Feedback sent"))
 
@@ -477,11 +562,20 @@ class CustomAppBar(AppBar):
         dev = self.page.metadata.dev
         if invert:
             dev = not dev
-        update_url, is_windows = await check_update(
-            self.page.metadata.version, dev, True
-        )
+        update_info = await check_update(self.page.metadata, debug=dev, force=True)
         await self.page.dialog.hide()
-        if is_windows:
+        if update_info is None:
+            await self.page.snack_bar.show(loc("Update is currently unavailable."), "yellow")
+            return
+
+        update_url = update_info["download_url"] or update_info["page_url"]
+        is_packaged_windows_app = (
+            os.name == "nt"
+            and Path(sys.executable).name.lower() == f"{self.page.metadata.tech_name}.exe".lower()
+        )
+
+        if update_info["is_windows_installer"] and is_packaged_windows_app:
+            previous_controls = self.page.controls
             self.page.controls = [
                 Column(
                     controls=[
@@ -496,13 +590,19 @@ class CustomAppBar(AppBar):
                     expand=True,
                 )
             ]
-            event.control.disabled = True
+            if event is not None and getattr(event, "control", None) is not None:
+                event.control.disabled = True
             await self.page.update_async()
-            async with ClientSession() as session:
-                async with session.get(update_url) as response:
-                    if response.status == 200:
+            try:
+                async with ClientSession(timeout=ClientTimeout(total=120)) as session:
+                    async with session.get(update_url) as response:
+                        if response.status != 200:
+                            raise RuntimeError(f"Update download failed with status {response.status}")
                         exe_path = Path(sys.executable)
                         exe_location = exe_path.parent
+                        update_script = exe_location / "update.bat"
+                        if not update_script.exists():
+                            raise FileNotFoundError(update_script)
                         appdata = Path(os.getenv("APPDATA"))
                         rtt_path = appdata.joinpath("Trove/aallyn").joinpath(
                             self.page.metadata.tech_name
@@ -511,14 +611,17 @@ class CustomAppBar(AppBar):
                             rtt_path.mkdir(parents=True)
                         update_file = rtt_path / "update.msi"
                         update_file.write_bytes(await response.read())
-                        subprocess.Popen(
-                            ["update.bat", str(exe_location), str(update_file)],
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            shell=True,
-                        )
-                        await self.page.window_close_async()
+                subprocess.Popen(
+                    ["cmd", "/c", str(update_script), str(exe_location), str(update_file)]
+                )
+                await self.page.window_close_async()
+            except Exception as exc:
+                log("Network").warning(f"Failed to download or launch update: {exc}")
+                self.page.controls = previous_controls
+                if event is not None and getattr(event, "control", None) is not None:
+                    event.control.disabled = False
+                await self.page.update_async()
+                await self.page.snack_bar.show(loc("Update download failed."), "red")
         else:
             await self.page.launch_url_async(update_url)
 
@@ -553,12 +656,19 @@ class CustomAppBar(AppBar):
 
     async def go_url(self, event):
         urls = {
-            "discord": "https://kiwiapi.aallyn.xyz/v1/misc/support",
-            "github": "https://kiwiapi.aallyn.xyz/v1/misc/github",
-            "paypal": "https://kiwiapi.aallyn.xyz/v1/misc/paypal",
-            "kofi": "https://kiwiapi.aallyn.xyz/v1/misc/kofi",
-            "buy_me_a_coffee": "https://kiwiapi.aallyn.xyz/v1/misc/bmc",
+            "github": _github_repo_url(self.page.metadata),
         }
+        if event.control.data != "github" and not API_ENABLED:
+            await self.page.snack_bar.show(API_DISABLED_REASON, "yellow")
+            return
+        urls.update(
+            {
+                "discord": f"{API_URL}/misc/support",
+                "paypal": f"{API_URL}/misc/paypal",
+                "kofi": f"{API_URL}/misc/kofi",
+                "buy_me_a_coffee": f"{API_URL}/misc/bmc",
+            }
+        )
         await self.page.launch_url_async(urls[event.control.data])
 
     async def open_about(self, event):
@@ -596,7 +706,10 @@ class CustomAppBar(AppBar):
                         )
                     ),
                     Divider(),
-                    *([Text(name, size=24) for name in files_cache["supporters.json"]]),
+                    *(
+                        [Text(name, size=24) for name in files_cache.get("supporters.json", [])]
+                        or [Text(loc("Supporter data is unavailable in local mode."))]
+                    ),
                 ]
             ),
         )

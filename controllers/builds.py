@@ -44,6 +44,7 @@ from models.trove.builds import (
 )
 from models.trove.star_chart import get_star_chart
 from utils.functions import get_attr, chunks
+from utils.kiwiapi import API_URL, API_ENABLED, API_DISABLED_REASON
 from utils.locale import loc
 
 
@@ -52,6 +53,14 @@ class GemBuildsController(Controller):
         if not hasattr(self, "classes"):
             self.interface = ResponsiveRow(vertical_alignment="START")
         asyncio.create_task(self.setup())
+
+    def _normalize_config(self):
+        if self.config.food not in self.foods:
+            self.config.food = next(iter(self.foods))
+        if self.config.ally not in self.allies:
+            self.config.ally = "boot_clown" if "boot_clown" in self.allies else next(
+                iter(self.allies)
+            )
 
     async def setup(self):
         if not hasattr(self, "classes"):
@@ -68,8 +77,11 @@ class GemBuildsController(Controller):
             self.allies = self.files["builds/ally.json"]
             self.face_damage = self.files["builds/face_damage.json"]["Face"]
             self.config = BuildConfig()
+            self._normalize_config()
             self.character_data = ResponsiveRow()
             self.features = ResponsiveRow()
+        else:
+            self._normalize_config()
         self.interface.disabled = True
         await self.page.update_async()
         self.selected_class = self.classes.get(self.config.character.value, None)
@@ -1016,10 +1028,10 @@ class GemBuildsController(Controller):
             if self.selected_class.damage_type == DamageType.magic
             else StatName.physical_damage
         )
-        if damage_type == DamageType.magic:
-            self.config.ally = "Starry Skyfire"
-        elif damage_type == DamageType.physical:
-            self.config.ally = "Scorpius"
+        if damage_type == StatName.magic_damage:
+            self.config.ally = "phoenix_stars"
+        elif damage_type == StatName.physical_damage:
+            self.config.ally = "spidermonkey_stars"
         await self.update_builds()
 
     async def set_subclass(self, event):
@@ -1078,22 +1090,29 @@ class GemBuildsController(Controller):
         await self.update_builds()
 
     async def set_build_string(self, event):
+        if not API_ENABLED:
+            await self.page.snack_bar.show(API_DISABLED_REASON, "yellow")
+            return
         build_id = event.control.value.strip().split("-")[-1].strip()
         async with ClientSession() as session:
             async with session.get(
-                f"https://kiwiapi.aallyn.xyz/v1/gem_builds/build/{build_id}"
+                f"{API_URL}/gem_builds/build/{build_id}"
             ) as response:
                 if response.status != 200:
                     await self.page.snack_bar.show(loc("Invalid build ID"))
                     return
                 data = await response.json()
                 self.config = BuildConfig(**json.loads(data)["config"])
+                self._normalize_config()
                 await self.update_builds()
 
     async def copy_build_string(self, _):
+        if not API_ENABLED:
+            await self.page.snack_bar.show(API_DISABLED_REASON, "yellow")
+            return
         async with ClientSession() as session:
             async with session.get(
-                "https://kiwiapi.aallyn.xyz/v1/gem_builds/build_config",
+                f"{API_URL}/gem_builds/build_config",
                 headers={"config": self.config.json()},
             ) as response:
                 data = await response.json()

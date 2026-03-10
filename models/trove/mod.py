@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import os
 import zipfile
 import zlib
 from hashlib import md5
@@ -11,19 +12,21 @@ from pathlib import Path
 from typing import Optional
 
 from aiohttp import ClientSession
+from aiohttp import ClientError
 from binary_reader import BinaryReader
 from pydantic import BaseModel
 from toml import dumps
 import re
-import os
 
 from utils.functions import read_leb128, write_leb128, calculate_hash, chunks, get_attr
+from utils.kiwiapi import API_URL, API_ENABLED
 from utils.logger import log
 from ..trovesaurus.mods import Mod
 from utils.trove.registry import TroveGamePath
 
 
 mod_file_cache = {}
+API_V1_URL = API_URL
 
 
 class NoFilesError(Exception): ...
@@ -531,16 +534,25 @@ class TroveMod:
         return False
 
     async def update(self):
+        if not API_ENABLED:
+            return False
         if self.trovesaurus_data is not None:
             files = [f for f in self.trovesaurus_data.file_objs if not f.is_config]
             files.sort(key=lambda f: -f.file_id)
             if files:
                 file = files[0]
-                url = f"https://kiwiapi.aallyn.xyz/v1/mods/downloadfile.php?fileid={file.file_id}"
+                url = f"{API_V1_URL}/mods/downloadfile.php?fileid={file.file_id}"
                 async with ClientSession() as session:
-                    async with session.get(url) as response:
-                        data = await response.read()
-                        self.mod_path.write_bytes(data)
+                    try:
+                        async with session.get(url, timeout=15) as response:
+                            if response.status != 200:
+                                return False
+                            data = await response.read()
+                            self.mod_path.write_bytes(data)
+                            return True
+                    except (asyncio.TimeoutError, ClientError, OSError):
+                        return False
+        return False
 
     def ensure_config(self):
         pass
@@ -713,10 +725,12 @@ class TroveModList:
         return self.count
 
     async def cloud_check(self):
+        if not API_ENABLED:
+            return
         async with ClientSession() as session:
             try:
                 async with session.get(
-                    f"https://kiwiapi.aallyn.xyz/v1/profile/cloud_mods",
+                    f"{API_V1_URL}/profile/cloud_mods",
                     json={"hashes": self.all_hashes},
                     timeout=2,
                 ) as response:
@@ -765,17 +779,19 @@ class TroveModList:
                                             # )
                         if uploads:
                             await session.post(
-                                f"https://kiwiapi.aallyn.xyz/v1/profile/upload_cloud_mods",
+                                f"{API_V1_URL}/profile/upload_cloud_mods",
                                 json={"mods": uploads},
                             )
             except asyncio.TimeoutError:
                 ...
 
     async def update_trovesaurus_data(self):
+        if not API_ENABLED:
+            return
         async with ClientSession() as session:
             try:
                 response = await session.get(
-                    f"https://kiwiapi.aallyn.xyz/v1/mods/hashes",
+                    f"{API_V1_URL}/mods/hashes",
                     json={"hashes": self.all_hashes},
                     timeout=10,
                 )
@@ -794,7 +810,7 @@ class TroveModList:
                                         )
                                         break
                                 break
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, ClientError, OSError):
                 ...
 
     @property

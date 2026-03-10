@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class Metadata(BaseModel):
     dev: bool
     author: str
+    github_repo: str | None = None
     name: str
     tech_name: str
     short_name: str
@@ -27,3 +28,7 @@ class Metadata(BaseModel):
     @property
     def app_name(self):
         return f"{self.name} - v{self.version}"
+
+    @property
+    def resolved_github_repo(self):
+        return self.github_repo or f"{self.author}/{self.tech_name}"

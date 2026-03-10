@@ -44,7 +44,7 @@ from utils.protocol import set_protocol
 from utils.routing import Routing
 from utils.trove.server_time import ServerTime
 from views import all_views
-from utils.kiwiapi import KiwiAPI
+from utils.kiwiapi import KiwiAPI, API_URL, API_ENABLED, API_DISABLED_REASON
 from utils import locale
 from utils.trove.registry import add_to_startup, remove_from_startup
 from persistent import AsyncFileEventHandler
@@ -287,12 +287,12 @@ class App:
         await self.post_login(logout=logout)
 
     async def login(self, token):
-        if token is None:
+        if token is None or not API_ENABLED:
             return None
         headers = {"User-Agent": f"RenewedTroveTools/{self.page.metadata.version}"}
         try:
             response = requests.get(
-                "https://kiwiapi.aallyn.xyz/v1/user/discord/get?pass_key=" + token,
+                f"{API_URL}/user/discord/get?pass_key=" + token,
                 timeout=5,
                 headers=headers,
             )
@@ -300,10 +300,13 @@ class App:
                 return None
             await self.page.client_storage.set_async("rnt-token", token)
             return response.json()
-        except requests.Timeout:
+        except requests.RequestException:
             return None
 
     async def display_login_screen(self, _):
+        if not API_ENABLED:
+            await self.page.snack_bar.show(API_DISABLED_REASON, "yellow")
+            return
         await self.page.go_async("/login")
 
     async def button_hover(self, e):
@@ -314,9 +317,10 @@ class App:
         await e.control.update_async()
 
     async def execute_login_discord(self, e):
-        await self.page.launch_url_async(
-            "https://kiwiapi.aallyn.xyz/v1/user/discord/login"
-        )
+        if not API_ENABLED:
+            await self.page.snack_bar.show(API_DISABLED_REASON, "yellow")
+            return
+        await self.page.launch_url_async(f"{API_URL}/user/discord/login")
 
     async def execute_login_trovesaurus(self, e):
         await self.page.launch_url_async("https://trovesaurus.com/profile")

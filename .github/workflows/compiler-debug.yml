@@ -4,6 +4,9 @@ on:
     types:
       - created
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Compile Code DEBUG
@@ -42,4 +45,4 @@ jobs:
           asset_name: "RenewedTroveTools-${{ github.event.release.name }}-win64-debug.msi"
           asset_content_type: application/x-msi
         env:
-          GITHUB_TOKEN: ${{ secrets.COMPILER }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

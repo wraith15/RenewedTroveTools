@@ -16,13 +16,46 @@ from binary_reader import BinaryReader
 
 from .path import BasePath
 
-if sys.platform == "win32":
-    dll = ctypes.CDLL(BasePath.joinpath("trove.dll").as_posix())
-else:
-    dll = ctypes.CDLL(BasePath.joinpath("trove.so").as_posix())
-calculate_hash = dll.calculate_hash
-calculate_hash.restype = ctypes.c_uint32
-calculate_hash.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+
+def _calculate_hash_python(data, length):
+    if isinstance(data, ctypes.c_char_p):
+        raw_data = ctypes.string_at(data, length)
+    else:
+        raw_data = bytes(data[:length])
+
+    hash_value = 2166136261
+    chunk_end = length & 0xFFFFFFFC
+
+    for index in range(0, chunk_end, 4):
+        chunk = int.from_bytes(raw_data[index : index + 4], "little")
+        hash_value = (16777619 * (hash_value ^ chunk)) & 0xFFFFFFFF
+
+    remainder = length & 3
+    if remainder == 1:
+        return (16777619 * (hash_value ^ raw_data[chunk_end])) & 0xFFFFFFFF
+    if remainder == 2:
+        tail = (raw_data[chunk_end] << 8) | raw_data[chunk_end + 1]
+        return (16777619 * (hash_value ^ tail)) & 0xFFFFFFFF
+    if remainder == 3:
+        tail = (
+            (raw_data[chunk_end] << 16)
+            | (raw_data[chunk_end + 1] << 8)
+            | raw_data[chunk_end + 2]
+        )
+        return (16777619 * (hash_value ^ tail)) & 0xFFFFFFFF
+    return hash_value
+
+
+try:
+    if sys.platform == "win32":
+        dll = ctypes.CDLL(BasePath.joinpath("trove.dll").as_posix())
+    else:
+        dll = ctypes.CDLL(BasePath.joinpath("trove.so").as_posix())
+    calculate_hash = dll.calculate_hash
+    calculate_hash.restype = ctypes.c_uint32
+    calculate_hash.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+except OSError:
+    calculate_hash = _calculate_hash_python
 
 
 def random_id(k=8):

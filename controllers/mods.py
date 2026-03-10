@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shutil
 from copy import deepcopy
 from hashlib import md5
 from pathlib import Path
@@ -482,10 +483,19 @@ class ModsController(Controller):
             Row(
                 controls=[
                     IconButton(
+                        icons.ADD,
+                        tooltip=loc("Add local TMod"),
+                        on_click=self.pick_local_mod_files,
+                    ),
+                    IconButton(
                         icons.FOLDER_OPEN,
-                        on_click=lambda x: os.startfile(
-                            self.memory["my_mods"]["installation_path"].path
-                        ),
+                        tooltip=loc("Open mods folder"),
+                        on_click=self.open_my_mods_folder,
+                    ),
+                    IconButton(
+                        icons.SETTINGS,
+                        tooltip=loc("Open configs folder"),
+                        on_click=self.open_mod_configs_folder,
                     ),
                     *(
                         [
@@ -633,6 +643,73 @@ class ModsController(Controller):
         self.my_mods.controls.append(my_mods_list)
         await self.release_ui()
 
+    async def pick_local_mod_files(self, _):
+        installation_path = self.memory["my_mods"]["installation_path"]
+        if installation_path is None:
+            await self.page.snack_bar.show(loc("No mods directory selected"), "red")
+            return
+        self.page.overlay.clear()
+        picker = FilePicker(on_result=self.add_local_mod_files_result)
+        self.page.overlay.append(picker)
+        await self.page.update_async()
+        await picker.pick_files_async(
+            dialog_title=loc("Select local TMod files"),
+            initial_directory=str(installation_path.mods_path.absolute()),
+            allow_multiple=True,
+            allowed_extensions=["tmod"],
+        )
+
+    async def add_local_mod_files_result(self, result):
+        if not result.files:
+            return
+        installation_path = self.memory["my_mods"]["installation_path"]
+        if installation_path is None:
+            await self.page.snack_bar.show(loc("No mods directory selected"), "red")
+            return
+
+        mods_path = installation_path.mods_path
+        imported = 0
+        skipped = []
+
+        for picked_file in result.files:
+            source = Path(picked_file.path)
+            if source.suffix.lower() != ".tmod":
+                skipped.append(source.name)
+                continue
+
+            destination = mods_path.joinpath(source.name)
+            if source.resolve() == destination.resolve():
+                skipped.append(source.name)
+                continue
+            if destination.exists():
+                skipped.append(source.name)
+                continue
+
+            shutil.copy2(source, destination)
+            imported += 1
+
+        await self.reload_tab(None)
+
+        if imported and not skipped:
+            await self.page.snack_bar.show(
+                loc("Imported {amount} TMod files").format(amount=imported)
+            )
+            return
+
+        if imported:
+            await self.page.snack_bar.show(
+                loc("Imported {amount} TMod files, skipped {skipped}").format(
+                    amount=imported, skipped=", ".join(skipped)
+                ),
+                "yellow",
+            )
+            return
+
+        await self.page.snack_bar.show(
+            loc("No valid TMod files were imported"),
+            "red",
+        )
+
     async def filter_my_mods(self, event):
         self.memory["my_mods"]["filter"] = event.control.value or None
         await self.load_my_mods()
@@ -654,7 +731,7 @@ class ModsController(Controller):
                         src=self.api.get_resized_image_url(
                             (
                                 mod.trovesaurus_data.image_url
-                                or f"https://kiwiapi.aallyn.xyz/v1/mods/preview_image/{mod.hash}"
+                                or f"{self.api.api_url}/mods/preview_image/{mod.hash}"
                             ),
                             ImageSize.SMALL,
                         ),
@@ -737,7 +814,7 @@ class ModsController(Controller):
                     data=mod.hash,
                     content=RTTImage(
                         src=self.api.get_resized_image_url(
-                            f"https://kiwiapi.aallyn.xyz/v1/mods/preview_image/{mod.hash}",
+                            f"{self.api.api_url}/mods/preview_image/{mod.hash}",
                             ImageSize.SMALL,
                         ),
                         fit=ImageFit.FIT_HEIGHT,
@@ -826,7 +903,7 @@ class ModsController(Controller):
             title=Text(loc("Mod image preview")),
             content=RTTImage(
                 src=self.api.get_resized_image_url(
-                    (f"https://kiwiapi.aallyn.xyz/v1/mods/preview_image/{hash}"),
+                    (f"{self.api.api_url}/mods/preview_image/{hash}"),
                     ImageSize.MAX,
                 ),
                 fit=ImageFit.FIT_WIDTH,
@@ -889,12 +966,13 @@ class ModsController(Controller):
     async def update_mods(self, event):
         await self.lock_ui()
         mods = event.control.data
+        updated = 0
         for mod in mods:
-            await mod.update()
-            await mod.update()
+            if await mod.update():
+                updated += 1
         await self.tab_loader(boot=True)
         await self.page.snack_bar.show(
-            loc("Updated {amount} mods").format(amount=len(mods))
+            loc("Updated {amount} mods").format(amount=updated)
         )
 
     async def update_my_mods_mod(self, event=None, mod=None):
@@ -902,7 +980,12 @@ class ModsController(Controller):
         mod = event.control.data or mod
         if not mod:
             return await self.release_ui()
-        await mod.update()
+        if not await mod.update():
+            await self.release_ui()
+            return await self.page.snack_bar.show(
+                loc("Failed to update mod"),
+                color="red",
+            )
         installation_path = self.memory["my_mods"]["installation_path"]
         self.my_mod_list = TroveModList(
             path=installation_path,
@@ -1170,6 +1253,28 @@ class ModsController(Controller):
             self.memory["trovesaurus"]["search"]["sub_type"],
             self.memory["trovesaurus"]["search"]["sort_by"],
         )
+        if (
+            page_count <= 0
+            and not self.cached_trovesaurus_mods
+            and not mod_types
+            and not self.memory["trovesaurus"]["search"]["query"]
+        ):
+            self.trovesaurus.controls.append(
+                Card(
+                    content=Column(
+                        controls=[
+                            Text(loc("Trovesaurus catalog is unavailable in local mode.")),
+                            Text(
+                                loc(
+                                    "To restore this tab, run a local API backend and point the app to it."
+                                )
+                            ),
+                        ]
+                    )
+                )
+            )
+            await self.release_ui()
+            return
         installation_path = self.memory["trovesaurus"]["installation_path"]
         mod_l = TroveModList(
             path=installation_path,
@@ -1503,6 +1608,9 @@ class ModsController(Controller):
             self.memory["trovesaurus"]["search"]["type"],
             self.memory["trovesaurus"]["search"]["sub_type"],
         )
+        if count <= 0:
+            self.memory["trovesaurus"]["page"] = 0
+            return
         if self.memory["trovesaurus"]["page"] < 0:
             self.memory["trovesaurus"]["page"] = count - 1
         self.memory["trovesaurus"]["selected_tile"] = None
@@ -1516,6 +1624,9 @@ class ModsController(Controller):
             self.memory["trovesaurus"]["search"]["type"],
             self.memory["trovesaurus"]["search"]["sub_type"],
         )
+        if count <= 0:
+            self.memory["trovesaurus"]["page"] = 0
+            return
         if self.memory["trovesaurus"]["page"] >= count:
             self.memory["trovesaurus"]["page"] = 0
         self.memory["trovesaurus"]["selected_tile"] = None
@@ -1532,6 +1643,9 @@ class ModsController(Controller):
                 self.memory["trovesaurus"]["search"]["type"],
                 self.memory["trovesaurus"]["search"]["sub_type"],
             )
+            if count <= 0:
+                self.memory["trovesaurus"]["page"] = 0
+                return
             if page >= count:
                 page = count - 1
             self.memory["trovesaurus"]["page"] = page
@@ -1543,6 +1657,25 @@ class ModsController(Controller):
         self.memory["my_mods"]["installation_path"] = event.control.data
         self.memory["trovesaurus"]["installation_path"] = event.control.data
         await self.load_trovesaurus_mods()
+
+    async def open_my_mods_folder(self, _):
+        installation_path = self.memory["my_mods"].get("installation_path")
+        if not installation_path or not installation_path.mods_path.exists():
+            await self.page.snack_bar.show(loc("No mods directory selected"), color="red")
+            return
+        os.startfile(installation_path.mods_path)
+
+    async def open_mod_configs_folder(self, _):
+        if os.name != "nt":
+            await self.page.snack_bar.show(
+                loc("Configs folder is only available on Windows"), color="red"
+            )
+            return
+        configs_path = Path(os.getenv("APPDATA", "")) / "Trove" / "ModCfgs"
+        if not configs_path.exists():
+            await self.page.snack_bar.show(loc("Configs folder is unavailable"), color="red")
+            return
+        os.startfile(configs_path)
 
     async def change_mod_version(self, event):
         mod = event.control.data
@@ -1582,11 +1715,26 @@ class ModsController(Controller):
 
     async def commit_change_mod_version(self, event):
         mod, file = event.control.data
-        url = f"https://kiwiapi.aallyn.xyz/v1/mods/downloadfile.php?fileid={file.file_id}"
+        url = f"{self.api.api_url}/mods/downloadfile.php?fileid={file.file_id}"
         async with ClientSession() as session:
-            async with session.get(url) as response:
-                data = await response.read()
-                mod.mod_path.write_bytes(data)
+            try:
+                async with session.get(url, timeout=15) as response:
+                    if response.status != 200:
+                        await self.page.snack_bar.show(
+                            loc("Failed to change mod version ({status})").format(
+                                status=response.status
+                            ),
+                            color="red",
+                        )
+                        return
+                    data = await response.read()
+                    mod.mod_path.write_bytes(data)
+            except (asyncio.TimeoutError, ClientError, OSError):
+                await self.page.snack_bar.show(
+                    loc("Failed to change mod version"),
+                    color="red",
+                )
+                return
         await self.page.dialog.hide()
         await self.reload_tab(event)
         await self.page.snack_bar.show(
@@ -1672,27 +1820,34 @@ class ModsController(Controller):
                 hash = md5(mod_file.read_bytes()).hexdigest()
                 if hash in hashes:
                     mod_file.unlink()
-        url = f"https://kiwiapi.aallyn.xyz/v1/mods/downloadfile.php?fileid={file_data.file_id}"
+        url = f"{self.api.api_url}/mods/downloadfile.php?fileid={file_data.file_id}"
         headers = {"User-Agent": f"RenewedTroveTools/{self.page.metadata.version}"}
         async with ClientSession(headers=headers) as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    await self.page.snack_bar.show(
-                        loc("Failed to install mod ({status})").format(
-                            status=response.status
-                        ),
-                        color="red",
-                    )
-                    return
-                data = await response.read()
-                try:
-                    mod = TMod.read_bytes(Path(""), data)
-                    mod_name = mod.name
-                except:
-                    mod_name = mod_data.name.replace("/", "-")
-                file_name = r"{0}.{1}".format(mod_name, file_data.type.value)
-                file_path = installation_path.mods_path.joinpath(file_name)
-                file_path.write_bytes(data)
+            try:
+                async with session.get(url, timeout=15) as response:
+                    if response.status != 200:
+                        await self.page.snack_bar.show(
+                            loc("Failed to install mod ({status})").format(
+                                status=response.status
+                            ),
+                            color="red",
+                        )
+                        return
+                    data = await response.read()
+                    try:
+                        mod = TMod.read_bytes(Path(""), data)
+                        mod_name = mod.name
+                    except:
+                        mod_name = mod_data.name.replace("/", "-")
+                    file_name = r"{0}.{1}".format(mod_name, file_data.type.value)
+                    file_path = installation_path.mods_path.joinpath(file_name)
+                    file_path.write_bytes(data)
+            except (asyncio.TimeoutError, ClientError, OSError):
+                await self.page.snack_bar.show(
+                    loc("Failed to install mod"),
+                    color="red",
+                )
+                return
         await self.tab_loader(index=self.mod_submenus.selected_index)
         await self.page.snack_bar.show(loc("Installed {name}").format(name=mod_name))
 
@@ -1796,7 +1951,7 @@ class ModsController(Controller):
             controls=[
                 ListTile(
                     leading=RTTImage(
-                        src=f"https://kiwiapi.aallyn.xyz/v1/mods/preview_image/{mod['hash']}"
+                        src=f"{self.api.api_url}/mods/preview_image/{mod['hash']}"
                     ),
                     title=Row(
                         controls=[

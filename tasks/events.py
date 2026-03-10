@@ -1,7 +1,13 @@
 import utils.tasks as tasks
 import json
+from time import monotonic
 from utils.logger import log
+from utils.kiwiapi import WS_EVENTS_URL
 import websockets
+
+
+EVENTS_RETRY_DELAY = 60
+_next_events_retry_at = 0.0
 
 
 async def challenge_notification(page, event):
@@ -73,12 +79,24 @@ async def notification_manager(page, event):
 
 @tasks.loop(seconds=0.1)
 async def event_receiver(page):
+    global _next_events_retry_at
+    if not WS_EVENTS_URL:
+        return
+    if monotonic() < _next_events_retry_at:
+        return
     try:
-        async with websockets.connect("wss://events.aallyn.xyz/") as ws:
+        async with websockets.connect(WS_EVENTS_URL) as ws:
             log("Tasks").info("Connected to events websocket")
+            _next_events_retry_at = 0.0
             async for message in ws:
-                event = json.loads(message)
-                log("Tasks").debug(f"Received event: {event}")
-                await notification_manager(page, event)
+                try:
+                    event = json.loads(message)
+                    log("Tasks").debug(f"Received event: {event}")
+                    await notification_manager(page, event)
+                except Exception as exc:
+                    log("Tasks").warning(f"Failed to process event payload: {exc}")
     except Exception as e:
-        log("Tasks").error(f"Failed to receive events: {e}\nRetrying...")
+        _next_events_retry_at = monotonic() + EVENTS_RETRY_DELAY
+        log("Tasks").warning(
+            f"Events websocket unavailable, retrying in {EVENTS_RETRY_DELAY}s: {e}"
+        )

@@ -7,11 +7,11 @@ class RTTImage(Image):
             super().__init__(src, **kwargs)
             return
         if isinstance(src, str) and src.startswith("assets/"):
-            src = "https://kiwiapi.aallyn.xyz/v1/misc/" + src
+            src = src.removeprefix("assets/")
         kwargs["src"] = src
         if kwargs.get("error_content") is None:
             error_content = RTTImage(
-                src="https://kiwiapi.aallyn.xyz/v1/misc/assets/images/construction.png",
+                src="images/construction.png",
                 is_fallback=True,
                 width=kwargs.get("width"),
             )

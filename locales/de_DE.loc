@@ -66,6 +66,7 @@ Activating this star exceeds max of {MaxNode} by {StagedLock}»»Activating this
 Add Custom directory»»Add Custom directory
 Add custom directory»»Add custom directory
 Add files»»Add files
+Add local TMod»»Add local TMod
 Add to Profile»»Add to Profile
 Add to profile»»Add to profile
 Added {file_name}»»Added {file_name}
@@ -213,6 +214,8 @@ Combat»»Combat
 Compare changes with»»Compare changes with
 Config»»Config
 Config file»»Config file
+Configs folder is only available on Windows»»Configs folder is only available on Windows
+Configs folder is unavailable»»Configs folder is unavailable
 Confirm»»Confirm
 Confirm extraction»»Confirm extraction
 Conjurer's Crucible Vial»»Conjurer's Crucible Vial
@@ -486,6 +489,8 @@ Ice Sage»»Ice Sage
 If you get knocked back, you cannot critically hit as much.»»If you get knocked back, you cannot critically hit as much.
 Image dimensions don't match game's recommended resolution of 400x230»»Image dimensions don't match game's recommended resolution of 400x230
 Image size exceeds 1MB, it may not be uploadable to Steam»»Image size exceeds 1MB, it may not be uploadable to Steam
+Imported {amount} TMod files»»Imported {amount} TMod files
+Imported {amount} TMod files, skipped {skipped}»»Imported {amount} TMod files, skipped {skipped}
 Improve Stat»»Improve Stat
 In this constellation of dungeon seeking we greet thee with more health.»»In this constellation of dungeon seeking we greet thee with more health.
 Incoming Damage»»Incoming Damage
@@ -705,10 +710,12 @@ No custom directories»»No custom directories
 No events are currently going on.»»No events are currently going on.
 No files added»»No files added
 No files found»»No files found
+No mods directory selected»»No mods directory selected
 No mods in this directory»»No mods in this directory
 No picked directory (Pick your mods folder)»»No picked directory (Pick your mods folder)
 No project folder selected, please select one in the settings tab»»No project folder selected, please select one in the settings tab
 No projects found in selected folder»»No projects found in selected folder
+No valid TMod files were imported»»No valid TMod files were imported
 No versions found»»No versions found
 Normal»»Normal
 Not going to push around the brawler.»»Not going to push around the brawler.
@@ -720,6 +727,8 @@ One day it will be super important to have a lot of this. Wink Wink»»One day i
 One or more mods conflict with this mod»»One or more mods conflict with this mod
 Oops, did I leave a flask over on this side of the cosmos.»»Oops, did I leave a flask over on this side of the cosmos.
 Oops, didn't I mean to make this a health star?»»Oops, didn't I mean to make this a health star?
+Open configs folder»»Open configs folder
+Open mods folder»»Open mods folder
 Open version folder»»Open version folder
 Orange»»Orange
 Orchian»»Orchian
@@ -826,6 +835,7 @@ Select a project folder»»Select a project folder
 Select all»»Select all
 Select config file»»Select config file
 Select files to add to mod»»Select files to add to mod
+Select local TMod files»»Select local TMod files
 Select preview image»»Select preview image
 Selling»»Selling
 Send»»Send

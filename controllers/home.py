@@ -2,7 +2,8 @@ import asyncio
 from datetime import datetime, UTC, timedelta
 
 import humanize
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientError
+from utils.kiwiapi import API_URL, TROVE_WEB_URL, API_ENABLED, API_DISABLED_REASON
 from utils.locale import loc
 from flet import (
     ListTile,
@@ -55,6 +56,14 @@ class HomeController(Controller):
             self.date = Text(loc("Trove Time"), size=20, col={"xxl": 6})
         asyncio.create_task(self.post_setup())
 
+    def _is_mounted(self):
+        return getattr(self.main, "_Control__page", None) is not None
+
+    async def _safe_update(self, control):
+        if not self._is_mounted():
+            return
+        await control.update_async()
+
     async def post_setup(self):
         self.streams_widget = HomeWidget(
             image="icons/brands/twitch.png",
@@ -86,7 +95,7 @@ class HomeController(Controller):
             icon=icons.LANDSCAPE,
             title=loc("D15 Biomes"),
             title_size=20,
-            title_url="https://trove.aallyn.xyz/long_shade_rotation",
+            title_url=f"{TROVE_WEB_URL}/long_shade_rotation",
             # on_click=lambda x: print(x), TODO: Modal with history of biomes
             controls=[Text(loc("Loading..."))],
         )
@@ -147,7 +156,7 @@ class HomeController(Controller):
         for task in self.tasks:
             if not task.is_running():
                 task.start()
-        await self.main.update_async()
+        await self._safe_update(self.main)
 
     def setup_events(self): ...
 
@@ -159,6 +168,8 @@ class HomeController(Controller):
 
     @tasks.loop(seconds=60)
     async def update_daily(self):
+        if not self._is_mounted():
+            return
         buffs = self.page.trove_time.daily_buffs
         current = self.page.trove_time.current_daily_buffs
         self.daily_widget.set_controls(
@@ -218,10 +229,12 @@ class HomeController(Controller):
                 for k, v in buffs.items()
             ]
         )
-        await self.daily_widget.update_async()
+        await self._safe_update(self.daily_widget)
 
     @tasks.loop(seconds=60)
     async def update_weekly(self):
+        if not self._is_mounted():
+            return
         buffs = self.page.trove_time.weekly_buffs
         current = self.page.trove_time.current_weekly_buffs
         self.weekly_widget.set_controls(
@@ -276,84 +289,97 @@ class HomeController(Controller):
                 ]
             )
         )
-        await self.weekly_widget.update_async()
+        await self._safe_update(self.weekly_widget)
 
     @tasks.loop(seconds=60)
     async def update_biomes(self):
-        async with ClientSession() as session:
-            async with session.get(
-                "https://kiwiapi.aallyn.xyz/v1/misc/d15_biomes"
-            ) as response:
-                if response.status != 200:
-                    self.biomes_widget.set_controls(Text("API is unreachable"))
-                    await self.biomes_widget.update_async()
-                    return
-                now = int(datetime.now(UTC).timestamp())
-                data = await response.json()
-                current = data["current"]
-                _next = data["next"]
-                start, end, first, second, third, _ = current
-                biome_pills = [
-                    Card(
-                        Container(
-                            Row(
-                                controls=[
-                                    RTTImage(
-                                        f"images/biomes/{b['icon']}.png", width=20
-                                    ),
-                                    Text(loc(b["final_name"]), size=13),
-                                ],
-                            ),
-                            padding=padding.symmetric(5, 15),
+        if not self._is_mounted():
+            return
+        if not API_ENABLED:
+            self.biomes_widget.set_controls(
+                Text(loc("Data is currently unavailable in local mode."))
+            )
+            await self._safe_update(self.biomes_widget)
+            return
+        try:
+            async with ClientSession() as session:
+                async with session.get(
+                        f"{API_URL}/misc/d15_biomes"
+                ) as response:
+                    if response.status != 200:
+                        self.biomes_widget.set_controls(Text(loc("Data is currently unavailable.")))
+                        await self._safe_update(self.biomes_widget)
+                        return
+                    now = int(datetime.now(UTC).timestamp())
+                    data = await response.json()
+                    current = data["current"]
+                    _next = data["next"]
+                    start, end, first, second, third, _ = current
+                    biome_pills = [
+                        Card(
+                            Container(
+                                Row(
+                                    controls=[
+                                        RTTImage(
+                                            f"images/biomes/{b['icon']}.png", width=20
+                                        ),
+                                        Text(loc(b["final_name"]), size=13),
+                                    ],
+                                ),
+                                padding=padding.symmetric(5, 15),
+                            )
                         )
-                    )
-                    for b in (first, second, third)
-                ]
-                start, end, first, second, third, _ = _next
-                next_biome_pills = [
-                    Card(
-                        Container(
-                            Row(
-                                controls=[
-                                    RTTImage(
-                                        f"images/biomes/{b['icon']}.png", width=20
-                                    ),
-                                    Text(loc(b["final_name"]), size=13),
-                                ],
-                            ),
-                            padding=padding.symmetric(5, 15),
+                        for b in (first, second, third)
+                    ]
+                    start, end, first, second, third, _ = _next
+                    next_biome_pills = [
+                        Card(
+                            Container(
+                                Row(
+                                    controls=[
+                                        RTTImage(
+                                            f"images/biomes/{b['icon']}.png", width=20
+                                        ),
+                                        Text(loc(b["final_name"]), size=13),
+                                    ],
+                                ),
+                                padding=padding.symmetric(5, 15),
+                            )
                         )
-                    )
-                    for b in (first, second, third)
-                ]
-                self.biomes_widget.set_controls(
-                    ResponsiveRow(
-                        controls=[
-                            Text(loc("Current")),
-                            Row(
-                                controls=biome_pills,
-                                alignment=MainAxisAlignment.SPACE_AROUND,
-                            ),
-                            Text(
-                                loc("Next in {}").format(
-                                    "{:02d}:{:02d}".format(
-                                        (start - now) // 3600,
-                                        (start - now) % 3600 // 60,
+                        for b in (first, second, third)
+                    ]
+                    self.biomes_widget.set_controls(
+                        ResponsiveRow(
+                            controls=[
+                                Text(loc("Current")),
+                                Row(
+                                    controls=biome_pills,
+                                    alignment=MainAxisAlignment.SPACE_AROUND,
+                                ),
+                                Text(
+                                    loc("Next in {}").format(
+                                        "{:02d}:{:02d}".format(
+                                            (start - now) // 3600,
+                                            (start - now) % 3600 // 60,
+                                        )
                                     )
-                                )
-                            ),
-                            Row(
-                                controls=next_biome_pills,
-                                alignment=MainAxisAlignment.SPACE_AROUND,
-                            ),
-                            # biomes,
-                        ]
+                                ),
+                                Row(
+                                    controls=next_biome_pills,
+                                    alignment=MainAxisAlignment.SPACE_AROUND,
+                                ),
+                            ]
+                        )
                     )
-                )
-                await self.biomes_widget.update_async()
+                    await self._safe_update(self.biomes_widget)
+        except (asyncio.TimeoutError, ClientError, OSError):
+            self.biomes_widget.set_controls(Text(loc("Data is currently unavailable.")))
+            await self._safe_update(self.biomes_widget)
 
     @tasks.loop(seconds=60)
     async def update_dragons(self):
+        if not self._is_mounted():
+            return
         trove_time = self.page.trove_time
         dragons = (
             (loc("Luxion"), trove_time.first_luxion, "lux"),
@@ -447,10 +473,12 @@ class HomeController(Controller):
         self.dragons_widget.set_controls(
             Row(controls=dragon_controls, alignment=MainAxisAlignment.SPACE_AROUND)
         )
-        await self.dragons_widget.update_async()
+        await self._safe_update(self.dragons_widget)
 
     @tasks.loop(seconds=60)
     async def update_twitch_streams(self):
+        if not self._is_mounted():
+            return
         streams = await self.api.get_twitch_streams()
         self.streams_widget.set_controls(
             Row(
@@ -503,15 +531,17 @@ class HomeController(Controller):
                 scroll=True,
             )
         )
-        await self.streams_widget.update_async()
+        await self._safe_update(self.streams_widget)
 
     @tasks.loop(seconds=60)
     async def update_mastery(self):
+        if not self._is_mounted():
+            return
         is_admin = self.page.is_admin
         mastery_data = await self.api.get_mastery()
         if mastery_data is None:
-            self.mastery_widget.set_controls(Text("API is unreachable"))
-            await self.mastery_widget.update_async()
+            self.mastery_widget.set_controls(Text(loc("Data is currently unavailable.")))
+            await self._safe_update(self.mastery_widget)
             return
         now = datetime.now(UTC)
         mastery_updated = humanize.naturaltime(
@@ -764,74 +794,82 @@ class HomeController(Controller):
                 ]
             )
         self.mastery_widget.set_controls(mastery_widgets)
-        await self.mastery_widget.update_async()
+        await self._safe_update(self.mastery_widget)
 
     @tasks.loop(seconds=60)
     async def update_events(self):
+        if not self._is_mounted():
+            return
         headers = {"User-Agent": f"RenewedTroveTools/{self.page.metadata.version}"}
-        async with ClientSession(headers=headers) as session:
-            async with session.get("https://trovesaurus.com/calendar/feed") as response:
-                events = await response.json()
-                self.events_widget.set_controls(
-                    [
-                        ListTile(
-                            title=Row(
-                                controls=[
-                                    TextButton(
-                                        content=Text(event["name"], size=20),
-                                        style=ButtonStyle(padding=padding.all(0)),
-                                        url=event["url"],
-                                    ),
-                                    RTTChip(
-                                        label=Text(event["category"]),
-                                        label_padding=padding.all(0),
-                                        padding=padding.symmetric(0, 5),
-                                    ),
-                                ]
-                            ),
-                            subtitle=Row(
-                                controls=[
-                                    Text(
-                                        humanize.naturalday(
-                                            datetime.fromtimestamp(
-                                                int(event["startdate"]), UTC
-                                            ),
-                                            "%B %d",
-                                        )
-                                    ),
-                                    Text(" - "),
-                                    Text(
-                                        humanize.naturalday(
-                                            datetime.fromtimestamp(
-                                                int(event["enddate"]), UTC
-                                            ),
-                                            "%B %d",
-                                        )
-                                    ),
-                                ]
-                            ),
-                            leading=RTTImage(
-                                src=event["image"] or event["icon"] or None,
-                                height=150,
-                                width=150,
-                            ),
-                        )
-                        for event in events
-                    ]
-                )
-                if not events:
+        try:
+            async with ClientSession(headers=headers) as session:
+                async with session.get("https://trovesaurus.com/calendar/feed") as response:
+                    events = await response.json()
                     self.events_widget.set_controls(
                         [
                             ListTile(
                                 title=Row(
                                     controls=[
-                                        Text(loc("No events are currently going on."))
+                                        TextButton(
+                                            content=Text(event["name"], size=20),
+                                            style=ButtonStyle(padding=padding.all(0)),
+                                            url=event["url"],
+                                        ),
+                                        RTTChip(
+                                            label=Text(event["category"]),
+                                            label_padding=padding.all(0),
+                                            padding=padding.symmetric(0, 5),
+                                        ),
                                     ]
-                                )
+                                ),
+                                subtitle=Row(
+                                    controls=[
+                                        Text(
+                                            humanize.naturalday(
+                                                datetime.fromtimestamp(
+                                                    int(event["startdate"]), UTC
+                                                ),
+                                                "%B %d",
+                                            )
+                                        ),
+                                        Text(" - "),
+                                        Text(
+                                            humanize.naturalday(
+                                                datetime.fromtimestamp(
+                                                    int(event["enddate"]), UTC
+                                                ),
+                                                "%B %d",
+                                            )
+                                        ),
+                                    ]
+                                ),
+                                leading=RTTImage(
+                                    src=event["image"] or event["icon"] or None,
+                                    height=150,
+                                    width=150,
+                                ),
                             )
+                            for event in events
                         ]
                     )
-                await self.events_widget.update_async()
+                    if not events:
+                        self.events_widget.set_controls(
+                            [
+                                ListTile(
+                                    title=Row(
+                                        controls=[
+                                            Text(loc("No events are currently going on."))
+                                        ]
+                                    )
+                                )
+                            ]
+                        )
+                    await self._safe_update(self.events_widget)
+        except (asyncio.TimeoutError, ClientError, OSError):
+            self.events_widget.set_controls(
+                [ListTile(title=Text(loc("Calendar feed is unavailable")))]
+            )
+            await self._safe_update(self.events_widget)
 
     async def edit_mastery(self, event):
         server, mastery_type, points = event.control.data
@@ -858,6 +896,9 @@ class HomeController(Controller):
         )
 
     async def save_mastery(self, event):
+        if not API_ENABLED or not self.page.user_data:
+            await self.page.snack_bar.show(API_DISABLED_REASON, "yellow")
+            return
         value = self.page.dialog.dialog.content.controls[2].value
         server, mastery_type, _ = event.control.data
         final_value = int(sympify(value).evalf())
