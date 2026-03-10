@@ -1,8 +1,14 @@
 name: Compile code
 on:
+  workflow_run:
+    workflows:
+      - Create release
+    types:
+      - completed
   release:
     types:
       - created
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -10,10 +16,18 @@ permissions:
 jobs:
   build:
     name: Compile Code
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v3
+
+      - name: Read version from metadata
+        id: metadata
+        shell: bash
+        run: |
+          version=$(python -c "import json; print(json.load(open('data/metadata.json', encoding='utf-8'))['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -29,20 +43,19 @@ jobs:
 
       - name: Move Files
         run: |
-          $env:RELEASE_NAME="${{ github.event.release.name }}"
-          $env:NEW_FILE_NAME="RenewedTroveTools-${{ github.event.release.name }}-win64.msi"
+          $env:RELEASE_NAME="${{ steps.metadata.outputs.version }}"
+          $env:NEW_FILE_NAME="RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64.msi"
           ls
           ls dist
-          Move-Item "dist/RenewedTroveTools-${{ github.event.release.name }}-win64.msi" ".\RenewedTroveTools-${{ github.event.release.name }}-win64.msi"
+          Move-Item "dist/RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64.msi" ".\RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64.msi"
           ls
           ls dist
 
       - name: Upload file to release
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: "RenewedTroveTools-${{ github.event.release.name }}-win64.msi"
-          asset_name: "RenewedTroveTools-${{ github.event.release.name }}-win64.msi"
-          asset_content_type: application/x-msi
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.metadata.outputs.version }}" \
+            "RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64.msi" \
+            --clobber
