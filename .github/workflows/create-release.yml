@@ -1,0 +1,49 @@
+name: Create release
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - data/metadata.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from metadata
+        id: metadata
+        shell: bash
+        run: |
+          version=$(python -c "import json; print(json.load(open('data/metadata.json', encoding='utf-8'))['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether release exists
+        id: release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.metadata.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        if: steps.release.outputs.exists != 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.metadata.outputs.version }}" \
+            --title "${{ steps.metadata.outputs.version }}" \
+            --notes "Automated release for version ${{ steps.metadata.outputs.version }}"

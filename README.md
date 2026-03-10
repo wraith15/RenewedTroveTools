@@ -1,6 +1,4 @@
 # Renewed Trove Tools
-[![](https://dcbadge.limes.pink/api/server/WTq6YxYzut)](https://discord.gg/WTq6YxYzut)
-<br>
 [![GitHub Release](https://img.shields.io/github/release/wraith15/RenewedTroveTools.svg?style=flat)]()
 [![Github All Releases](https://img.shields.io/github/downloads/wraith15/RenewedTroveTools/total.svg?style=flat)]()
 [![NPM License](https://img.shields.io/npm/l/all-contributors.svg?style=flat)](https://github.com/wraith15/RenewedTroveTools/blob/master/LICENSE)
@@ -55,7 +53,7 @@ Note: This still requires you to manually set up your mods folder
 Use the support link exposed by your configured API host, if available.
 
 ### Thanks
-Original project: Aallyn
+Original project: [AallynReed/RenewedTroveTools](https://github.com/AallynReed/RenewedTroveTools)
 
 PotatoPVP - Linux Support
 <br>
