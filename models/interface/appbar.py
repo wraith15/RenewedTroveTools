@@ -87,15 +87,22 @@ def _is_newer_version(candidate, current):
 
 
 def _pick_release_asset(release, debug=False):
-    msi_assets = []
+    preferred_assets = []
+    fallback_assets = []
     for asset in release.get("assets", []):
         name = (asset.get("name") or "").lower()
-        if not name.endswith(".msi"):
+        if not (name.endswith(".exe") or name.endswith(".msi")):
             continue
         is_debug_asset = "debug" in name
-        if is_debug_asset == debug:
-            msi_assets.append(asset)
-    return msi_assets[0] if msi_assets else None
+        if is_debug_asset != debug:
+            continue
+        if name.endswith(".exe"):
+            preferred_assets.append(asset)
+        else:
+            fallback_assets.append(asset)
+    if preferred_assets:
+        return preferred_assets[0]
+    return fallback_assets[0] if fallback_assets else None
 
 
 async def _get_latest_release(session, metadata, debug=False):
@@ -150,6 +157,7 @@ async def check_update(metadata, debug=None, force=False):
         "version": release_version,
         "page_url": release.get("html_url") or f"{_github_repo_url(metadata)}/releases/latest",
         "download_url": release_asset.get("browser_download_url") if release_asset else None,
+        "download_name": release_asset.get("name") if release_asset else None,
         "is_windows_installer": os.name == "nt" and release_asset is not None,
         "debug": target_debug,
     }
@@ -609,7 +617,9 @@ class CustomAppBar(AppBar):
                         )
                         if not rtt_path.exists():
                             rtt_path.mkdir(parents=True)
-                        update_file = rtt_path / "update.msi"
+                        asset_name = update_info.get("download_name") or "update.msi"
+                        suffix = Path(asset_name).suffix or ".msi"
+                        update_file = rtt_path / f"update{suffix}"
                         update_file.write_bytes(await response.read())
                 subprocess.Popen(
                     ["cmd", "/c", str(update_script), str(exe_location), str(update_file)]

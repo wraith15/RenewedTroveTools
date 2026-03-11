@@ -1,4 +1,4 @@
-name: Compile debug MSI
+name: Compile debug installer
 on:
   workflow_dispatch:
 
@@ -13,6 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
+
       - name: Read version from metadata
         id: metadata
         shell: bash
@@ -20,27 +28,22 @@ jobs:
           version=$(python -c "import json; print(json.load(open('data/metadata.json', encoding='utf-8'))['version'])")
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12.3'
-          architecture: 'x64'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
-
       - name: Install dependencies
         run: python -m pip install --prefer-binary -r requirements.txt
 
-      - name: Compile code into MSI package
-        run: python compile-debug.py bdist_msi
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile installer
+        run: python build_installer.py --debug
 
       - name: Move Files
         run: |
           $env:RELEASE_NAME="${{ steps.metadata.outputs.version }}"
-          $env:NEW_FILE_NAME="RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64-debug.msi"
+          $env:NEW_FILE_NAME="RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64-debug-setup.exe"
           ls
           ls dist
-          Move-Item "dist/RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64.msi" ".\RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64-debug.msi"
+          Move-Item "dist/RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64-debug-setup.exe" ".\RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64-debug-setup.exe"
           ls
           ls dist
 
@@ -50,5 +53,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ steps.metadata.outputs.version }}" \
-            "RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64-debug.msi" \
+            "RenewedTroveTools-${{ steps.metadata.outputs.version }}-win64-debug-setup.exe" \
             --clobber

@@ -66,6 +66,10 @@ with TemporaryDirectory() as temp_dir:
         "excludes": [
             "wheel",
             "cx_Freeze",
+            "tkinter",
+            "_tkinter",
+            "tcl",
+            "tk",
         ],
         "include_files": [
             ("assets/", "assets/"),
